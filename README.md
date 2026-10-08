@@ -1,5 +1,9 @@
 # tethercast
 
+<p align="center">
+  <img src="logo.png" alt="tethercast" width="180">
+</p>
+
 **Turn an Android tablet into a second monitor for a Linux machine — over a USB cable, with no network at all.**
 
 No Wi‑Fi, no internet, no router. Just the cable.
