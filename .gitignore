@@ -1,0 +1,17 @@
+# ambienti
+venv/
+__pycache__/
+*.pyc
+
+# file di prova e catture
+*.png
+*.jpg
+*.ts
+*.nut
+/tmp/
+log/
+*.log
+
+# robaccia dell'editor
+.vscode/
+.idea/

@@ -1,0 +1,13 @@
+[Unit]
+Description=tethercast — reconnect the tablet whenever it is plugged in
+After=tethercast.service
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/bin/bash %h/bc250-display/tablet-watch.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

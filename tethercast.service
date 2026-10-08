@@ -1,0 +1,27 @@
+[Unit]
+Description=tethercast — stream this machine's display to a tablet over USB
+After=graphical-session.target
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_CURRENT_DESKTOP=Hyprland
+# HYPRLAND_INSTANCE_SIGNATURE must match the running compositor; the
+# server creates its virtual output through compositor IPC.
+Environment=HYPRLAND_INSTANCE_SIGNATURE=REPLACE_ME
+WorkingDirectory=%h/bc250-display
+# Clear the port and any stray capturers left by a previous run.
+# Without this the service loops with "Address already in use".
+ExecStartPre=-/usr/bin/pkill -f bc250-display.py
+ExecStartPre=-/usr/bin/pkill -x wf-recorder
+ExecStartPre=-/usr/bin/sleep 2
+ExecStart=/usr/bin/python3 -u %h/bc250-display/bc250-display.py
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

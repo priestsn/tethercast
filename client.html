@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>BC250 Display</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; background:#000; overflow:hidden; }
+  #v {
+    width:100%; height:100%;
+    object-fit: fill;      /* video 5:3 su pannello 5:3: nessuna banda nera */
+    background:#000; display:block;
+  }
+  #hud {
+    position:fixed; left:12px; top:12px; padding:8px 14px;
+    font:13px/1.45 monospace; color:#0f0; background:rgba(0,0,0,.7);
+    border-radius:6px; pointer-events:none; opacity:0; transition:opacity .25s;
+    white-space:pre; max-width:90vw;
+  }
+  #hud.on { opacity:1; }
+  #avvio {
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:#0b0b0f; color:#e8e8e8; font:16px system-ui,sans-serif; text-align:center;
+    padding:24px; cursor:pointer; flex-direction:column; gap:16px;
+  }
+  #avvio b { font-size:24px; letter-spacing:.5px; }
+  #avvio span { opacity:.6; font-size:14px; }
+  .hide { display:none !important; }
+</style>
+</head>
+<body>
+
+<div id="avvio">
+  <b>BC250 Display</b>
+  <span id="msg">collegamento…</span>
+</div>
+
+<video id="v" muted playsinline></video>
+<div id="hud"></div>
+
+<script src="/mpegts.js"></script>
+<script>
+/* ---------------------------------------------------------------
+   Client BC250 Display — lato tablet.
+
+   Riceve MPEG-TS dalla scheda attraverso il cavo USB e lo riproduce
+   a schermo pieno. La decodifica H.264 la fa il tablet in hardware,
+   tramite Media Source Extensions.
+
+   Scelte fatte per la latenza:
+     enableStashBuffer: false      non accumula, consuma subito
+     liveBufferLatencyChasing      se resta indietro, salta avanti
+     liveBufferLatencyMaxLatency   0.5 s: oltre questo si allinea
+   --------------------------------------------------------------- */
+
+const URL_STREAM = '/live';
+
+const v    = document.getElementById('v');
+const hud  = document.getElementById('hud');
+const avvio = document.getElementById('avvio');
+
+let player = null, stato = 'fermo', ultimoFrame = 0, stessoConteggio = 0;
+
+function mostra(t) { hud.textContent = t; hud.classList.add('on'); }
+const msgAvvio = document.getElementById('msg');
+function statoAvvio(t) { if (msgAvvio) msgAvvio.textContent = t; }
+function nascondi() { hud.classList.remove('on'); }
+
+function collega() {
+  statoAvvio('collegamento…');
+
+  if (!window.mpegts || !mpegts.isSupported()) {
+    mostra('questo browser non supporta la riproduzione');
+    return;
+  }
+
+  if (player) { try { player.destroy(); } catch (e) {} player = null; }
+
+  player = mpegts.createPlayer(
+    { type: 'mpegts', isLive: true, url: URL_STREAM + '?t=' + Date.now() },
+    {
+      enableWorker: false,
+      enableStashBuffer: false,          // niente accumulo: latenza bassa
+      stashInitialSize: 128,
+      liveBufferLatencyChasing: true,    // insegue sempre la diretta
+      liveBufferLatencyMaxLatency: 0.5,
+      liveBufferLatencyMinRemain: 0.1,
+      lazyLoad: false,
+      autoCleanupSourceBuffer: true,
+      autoCleanupMaxBackwardDuration: 4,
+      autoCleanupMinBackwardDuration: 2,
+      reuseRedirectedURL: true,
+    }
+  );
+
+  // Nascondi la schermata di avvio appena il video ha dei pixel veri,
+  // senza aspettare l'evento di mpegts.js: altrimenti resta sopra al video.
+  const viaCopertura = () => {
+    if (v.videoWidth > 0) {
+      avvio.classList.add('hide');
+      stato = 'attivo';
+      mostra(`connesso  ${v.videoWidth}x${v.videoHeight}`);
+      setTimeout(nascondi, 1500);
+    }
+  };
+  v.addEventListener('loadeddata', viaCopertura);
+  v.addEventListener('playing', viaCopertura);
+  setInterval(viaCopertura, 1000);
+
+  player.attachMediaElement(v);
+  player.on(mpegts.Events.ERROR, (tipo, info, dettaglio) => {
+    stato = 'errore ' + tipo;
+    // il dettaglio serve: 'NetworkError' da solo non dice se e' la rete,
+    // il codec o il contenitore
+    let testo = 'errore: ' + tipo;
+    if (info && info !== tipo) testo += '\n' + info;
+    if (dettaglio) testo += '\n' + String(dettaglio).slice(0, 300);
+    if (v.error) testo += '\nvideo: ' + v.error.code + ' ' + (v.error.message || '');
+    testo += '\n\nriprovo…';
+    mostra(testo);
+    setTimeout(collega, 2000);
+  });
+
+  /* controllo diretto: la stessa richiesta che fa mpegts.js, dal thread
+     principale. Se questa riesce e mpegts.js no, il problema e' la libreria. */
+  fetch(URL_STREAM + '?probe=1', { cache: 'no-store' })
+    .then(r => r.body.getReader().read())
+    .then(({ value }) => mostra('prova diretta: OK, ' + (value ? value.length : 0) + ' byte'))
+    .catch(e => mostra('prova diretta FALLITA: ' + e.message))
+    .finally(() => setTimeout(nascondi, 2500));
+  player.on(mpegts.Events.MEDIA_INFO, (info) => {
+    stato = 'attivo';
+    avvio.classList.add('hide');
+    mostra(`connesso  ${info.width}x${info.height}\n${info.fps ? info.fps.toFixed(0) : '?'} fps`);
+    setTimeout(nascondi, 1500);
+  });
+
+  try {
+    player.load();
+    player.play().catch(() => {});
+  } catch (e) {
+    mostra('errore all\'avvio: ' + e);
+    setTimeout(collega, 1500);
+  }
+}
+
+/* Se il video si blocca, si riparte da solo: e' il motivo per cui
+   questo client non va "sistemato ogni due giorni". */
+setInterval(() => {
+  if (stato !== 'attivo') return;
+  const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+  const n = q ? q.totalVideoFrames : 0;
+  if (n === ultimoFrame) {
+    stessoConteggio++;
+    if (stessoConteggio >= 2) {          // 2 controlli = ~8 s fermo
+      mostra('flusso fermo, riavvio…');
+      stessoConteggio = 0;
+      setTimeout(collega, 300);
+    }
+  } else {
+    stessoConteggio = 0;
+  }
+  ultimoFrame = n;
+}, 4000);
+
+/* Tre tocchi rapidi = diagnostica */
+let tocchi = 0;
+document.addEventListener('touchstart', () => {
+  tocchi++;
+  if (tocchi >= 3) {
+    tocchi = 0;
+    const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : {};
+    const ritardo = v.buffered.length ? (v.buffered.end(v.buffered.length - 1) - v.currentTime) : -1;
+    mostra(`stato ${stato}\nrisoluzione ${v.videoWidth}x${v.videoHeight}\nfps ${q.totalVideoFrames || '?'}\nritardo ${ritardo.toFixed(2)} s\nbuffer ${(v.buffered.length ? v.buffered.end(0) : 0).toFixed(2)} s`);
+    setTimeout(nascondi, 3500);
+  }
+  setTimeout(() => tocchi = 0, 600);
+});
+
+/* Parte da sola: il video e' muto, quindi i browser lo consentono.
+   Il tocco resta come ripiego se l'avvio automatico viene bloccato. */
+function schermoPieno() {
+  const el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  if (screen.orientation && screen.orientation.lock)
+    screen.orientation.lock('landscape').catch(() => {});
+}
+
+avvio.addEventListener('click', () => { schermoPieno(); collega(); });
+
+window.addEventListener('load', () => {
+  setTimeout(() => { schermoPieno(); collega(); }, 600);
+});
+</script>
+</body>
+</html>
