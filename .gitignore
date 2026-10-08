@@ -5,6 +5,7 @@ __pycache__/
 
 # file di prova e catture
 *.png
+!logo.png
 *.jpg
 *.ts
 *.nut
